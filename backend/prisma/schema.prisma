@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+}
+
+generator erd {
+  provider = "prisma-erd-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model PackAbonnement {
+  id             String         @id @default(cuid())
+  name           String
+  description    String?
+  price          Float
+  durationMonths Int
+  status         String         @default("active")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  dashboards     Dashboard[]    @relation("PackDashboards")
+  subscriptions  Subscription[] @relation("PackSubscriptions")
+}
+
+model Subscription {
+  id        String         @id @default(cuid())
+  clientId  String
+  packId    String
+  startDate DateTime
+  endDate   DateTime
+  status    String
+  client    Client         @relation("ClientSubscriptions", fields: [clientId], references: [id])
+  pack      PackAbonnement @relation("PackSubscriptions", fields: [packId], references: [id])
+}
+
+model Client {
+  id            String                       @id @default(uuid())
+  firstname     String
+  lastname      String
+  address       String?
+  phone         String?                      @unique
+  email         String                       @unique
+  password      String
+  role          ClientRole                   @default(NORMALCLIENT)
+  createdAt     DateTime                     @default(now())
+  pharmacyInfo  PharmacyBusinessInformation?
+  purchases     Purchase[]
+  subscriptions Subscription[]               @relation("ClientSubscriptions")
+}
+
+model PharmacyBusinessInformation {
+  id            String   @id @default(cuid())
+  pharmacyName  String
+  address       String
+  city          String
+  country       String
+  licenseNumber String   @unique
+  phone         String?
+  website       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  clientId      String   @unique
+  client        Client   @relation(fields: [clientId], references: [id])
+}
+
+model Dashboard {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  packId      String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  pack        PackAbonnement @relation("PackDashboards", fields: [packId], references: [id])
+  pages       Page[]
+  products    Product[]
+}
+
+model Page {
+  id          String    @id @default(cuid())
+  title       String
+  content     String?
+  dashboardId String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id])
+}
+
+model Product {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  dashboardId String
+  categoryId  String
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  category    Category   @relation(fields: [categoryId], references: [id])
+  dashboard   Dashboard  @relation(fields: [dashboardId], references: [id])
+  purchases   Purchase[]
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  products    Product[]
+}
+
+model Purchase {
+  id        String   @id @default(cuid())
+  clientId  String
+  productId String
+  quantity  Int
+  total     Float
+  createdAt DateTime @default(now())
+  client    Client   @relation(fields: [clientId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+}
+
+enum ClientRole {
+  NORMALCLIENT
+  ADMINISTRATORCLIENT
+}
