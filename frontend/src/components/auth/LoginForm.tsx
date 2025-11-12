@@ -76,7 +76,7 @@ export default function LoginForm() {
             
             // Redirect based on user role
             if (response.client.role === 'ADMINISTRATORCLIENT') {
-                router.push('/dashboard');
+                router.push('/admin/dashboard');
             } else {
                 router.push('/');
             }
