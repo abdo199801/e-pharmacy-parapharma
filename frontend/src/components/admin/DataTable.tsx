@@ -6,9 +6,9 @@ import {
   Edit, 
   Trash2, 
   Eye,
-  MoreVertical,
   Filter,
-  Search
+  Search,
+  RefreshCw
 } from 'lucide-react'
 
 export interface Column {
@@ -29,18 +29,29 @@ export interface DataTableProps {
   onDelete?: (item: any) => void
   onView?: (item: any) => void
   onSelect?: (selectedItems: any[]) => void
+  onSearch?: (searchTerm: string) => void
+  onSort?: (key: string, direction: 'asc' | 'desc') => void
+  onFilter?: (key: string, value: string) => void
+  onPageChange?: (page: number) => void
   selectable?: boolean
   searchable?: boolean
   searchPlaceholder?: string
   pagination?: boolean
   pageSize?: number
+  currentPage?: number
+  totalItems?: number
+  totalPages?: number
   loading?: boolean
   emptyMessage?: string
   actionColumn?: boolean
   className?: string
   rowClassName?: (item: any) => string
-  onSort?: (key: string, direction: 'asc' | 'desc') => void
-  onFilter?: (key: string, value: string) => void
+  // Server-side control props
+  serverSide?: boolean
+  externalSearchTerm?: string
+  externalSortConfig?: { key: string; direction: 'asc' | 'desc' } | null
+  externalFilters?: Record<string, string>
+  onRefresh?: () => void
 }
 
 export function DataTable({ 
@@ -50,45 +61,68 @@ export function DataTable({
   onDelete, 
   onView,
   onSelect,
+  onSearch,
+  onSort,
+  onFilter,
+  onPageChange,
   selectable = false,
   searchable = false,
   searchPlaceholder = "Search...",
   pagination = false,
   pageSize = 10,
+  currentPage: externalCurrentPage = 1,
+  totalItems: externalTotalItems,
+  totalPages: externalTotalPages,
   loading = false,
   emptyMessage = "No data available",
   actionColumn = true,
   className = "",
   rowClassName,
-  onSort,
-  onFilter
+  // Server-side props
+  serverSide = false,
+  externalSearchTerm = '',
+  externalSortConfig = null,
+  externalFilters = {},
+  onRefresh
 }: DataTableProps) {
-  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set())
-  const [currentPage, setCurrentPage] = useState(1)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
-  const [filters, setFilters] = useState<Record<string, string>>({})
+  // Client-side state (only used when serverSide is false)
+  const [clientSelectedRows, setClientSelectedRows] = useState<Set<string>>(new Set())
+  const [clientCurrentPage, setClientCurrentPage] = useState(1)
+  const [clientSearchTerm, setClientSearchTerm] = useState('')
+  const [clientSortConfig, setClientSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null)
+  const [clientFilters, setClientFilters] = useState<Record<string, string>>({})
 
-  // Handle row selection
+  // Use server-side or client-side values
+  const selectedRows = serverSide ? new Set() : clientSelectedRows
+  const currentPage = serverSide ? externalCurrentPage : clientCurrentPage
+  const searchTerm = serverSide ? externalSearchTerm : clientSearchTerm
+  const sortConfig = serverSide ? externalSortConfig : clientSortConfig
+  const filters = serverSide ? externalFilters : clientFilters
+
+  // Handle row selection (client-side only)
   const handleSelectRow = (id: string) => {
-    const newSelected = new Set(selectedRows)
+    if (serverSide) return
+    
+    const newSelected = new Set(clientSelectedRows)
     if (newSelected.has(id)) {
       newSelected.delete(id)
     } else {
       newSelected.add(id)
     }
-    setSelectedRows(newSelected)
+    setClientSelectedRows(newSelected)
     onSelect?.(Array.from(newSelected).map(id => data.find(item => item.id === id)))
   }
 
-  // Handle select all
+  // Handle select all (client-side only)
   const handleSelectAll = () => {
-    if (selectedRows.size === paginatedData.length) {
-      setSelectedRows(new Set())
+    if (serverSide) return
+    
+    if (clientSelectedRows.size === paginatedData.length) {
+      setClientSelectedRows(new Set())
       onSelect?.([])
     } else {
       const allIds = new Set(paginatedData.map(item => item.id))
-      setSelectedRows(allIds)
+      setClientSelectedRows(allIds)
       onSelect?.(paginatedData)
     }
   }
@@ -99,19 +133,49 @@ export function DataTable({
     if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
       direction = 'desc'
     }
-    setSortConfig({ key, direction })
-    onSort?.(key, direction)
+    
+    if (serverSide) {
+      onSort?.(key, direction)
+    } else {
+      setClientSortConfig({ key, direction })
+    }
   }
 
   // Handle filtering
   const handleFilter = (key: string, value: string) => {
-    const newFilters = { ...filters, [key]: value }
-    setFilters(newFilters)
-    onFilter?.(key, value)
+    if (serverSide) {
+      onFilter?.(key, value)
+    } else {
+      const newFilters = { ...clientFilters, [key]: value }
+      setClientFilters(newFilters)
+    }
   }
 
-  // Filter and sort data
+  // Handle search
+  const handleSearch = (value: string) => {
+    if (serverSide) {
+      onSearch?.(value)
+    } else {
+      setClientSearchTerm(value)
+      setClientCurrentPage(1)
+    }
+  }
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    if (serverSide) {
+      onPageChange?.(page)
+    } else {
+      setClientCurrentPage(page)
+    }
+  }
+
+  // Client-side data processing (only used when serverSide is false)
   const processedData = useMemo(() => {
+    if (serverSide) {
+      return data // Server already processed the data
+    }
+
     let result = [...data]
 
     // Apply search
@@ -146,16 +210,27 @@ export function DataTable({
     }
 
     return result
-  }, [data, searchTerm, filters, sortConfig, columns])
+  }, [data, searchTerm, filters, sortConfig, columns, serverSide])
 
-  // Pagination
+  // Pagination logic
   const paginatedData = useMemo(() => {
-    if (!pagination) return processedData
+    if (!pagination) return serverSide ? data : processedData
+    
+    if (serverSide) {
+      return data // Server already paginated the data
+    }
+    
     const startIndex = (currentPage - 1) * pageSize
     return processedData.slice(startIndex, startIndex + pageSize)
-  }, [processedData, currentPage, pageSize, pagination])
+  }, [processedData, currentPage, pageSize, pagination, serverSide, data])
 
-  const totalPages = Math.ceil(processedData.length / pageSize)
+  const totalPages = serverSide 
+    ? (externalTotalPages || 1)
+    : Math.ceil(processedData.length / pageSize)
+  
+  const totalItems = serverSide 
+    ? (externalTotalItems || data.length)
+    : processedData.length
 
   // Get sort icon
   const getSortIcon = (key: string) => {
@@ -183,18 +258,29 @@ export function DataTable({
   return (
     <div className={`bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden ${className}`}>
       {/* Search Bar */}
-      {searchable && (
-        <div className="p-4 border-b border-gray-200">
-          <div className="relative max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder={searchPlaceholder}
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
-            />
-          </div>
+      {(searchable || onRefresh) && (
+        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+          {searchable && (
+            <div className="relative max-w-md flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder={searchPlaceholder}
+                value={searchTerm}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+              />
+            </div>
+          )}
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={loading}
+              className="ml-4 inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          )}
         </div>
       )}
 
@@ -203,8 +289,8 @@ export function DataTable({
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              {/* Select All Checkbox */}
-              {selectable && (
+              {/* Select All Checkbox (client-side only) */}
+              {selectable && !serverSide && (
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
                   <input
                     type="checkbox"
@@ -236,6 +322,7 @@ export function DataTable({
                       <button
                         onClick={() => handleSort(column.key)}
                         className="text-gray-400 hover:text-gray-600 transition-colors"
+                        disabled={loading}
                       >
                         {getSortIcon(column.key)}
                       </button>
@@ -251,6 +338,7 @@ export function DataTable({
                           }
                         }}
                         className="text-gray-400 hover:text-gray-600 transition-colors"
+                        disabled={loading}
                       >
                         <Filter className="h-3 w-3" />
                       </button>
@@ -276,8 +364,8 @@ export function DataTable({
                   selectedRows.has(item.id) ? 'bg-blue-50' : ''
                 } ${rowClassName ? rowClassName(item) : ''}`}
               >
-                {/* Row Checkbox */}
-                {selectable && (
+                {/* Row Checkbox (client-side only) */}
+                {selectable && !serverSide && (
                   <td className="px-4 py-3 whitespace-nowrap">
                     <input
                       type="checkbox"
@@ -320,6 +408,7 @@ export function DataTable({
                           onClick={() => onView(item)}
                           className="text-gray-400 hover:text-blue-600 transition-colors p-1 rounded"
                           title="View Details"
+                          disabled={loading}
                         >
                           <Eye className="h-4 w-4" />
                         </button>
@@ -329,6 +418,7 @@ export function DataTable({
                           onClick={() => onEdit(item)}
                           className="text-gray-400 hover:text-teal-600 transition-colors p-1 rounded"
                           title="Edit"
+                          disabled={loading}
                         >
                           <Edit className="h-4 w-4" />
                         </button>
@@ -338,6 +428,7 @@ export function DataTable({
                           onClick={() => onDelete(item)}
                           className="text-gray-400 hover:text-red-600 transition-colors p-1 rounded"
                           title="Delete"
+                          disabled={loading}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -369,15 +460,15 @@ export function DataTable({
             <div className="text-sm text-gray-700 mb-2 sm:mb-0">
               Showing <span className="font-medium">{(currentPage - 1) * pageSize + 1}</span> to{' '}
               <span className="font-medium">
-                {Math.min(currentPage * pageSize, processedData.length)}
+                {Math.min(currentPage * pageSize, totalItems)}
               </span> of{' '}
-              <span className="font-medium">{processedData.length}</span> results
+              <span className="font-medium">{totalItems}</span> results
             </div>
             
             <div className="flex items-center space-x-2">
               <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                disabled={currentPage === 1}
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1 || loading}
                 className="px-3 py-1 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
@@ -396,12 +487,13 @@ export function DataTable({
                         <span className="px-2 py-1 text-gray-500">...</span>
                       )}
                       <button
-                        onClick={() => setCurrentPage(page)}
+                        onClick={() => handlePageChange(page)}
+                        disabled={loading}
                         className={`px-3 py-1 border text-sm font-medium ${
                           currentPage === page
                             ? 'border-teal-500 bg-teal-50 text-teal-600'
                             : 'border-gray-300 text-gray-700 hover:bg-gray-50'
-                        }`}
+                        } disabled:opacity-50 disabled:cursor-not-allowed`}
                       >
                         {page}
                       </button>
@@ -410,8 +502,8 @@ export function DataTable({
               </div>
               
               <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                disabled={currentPage === totalPages}
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages || loading}
                 className="px-3 py-1 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
@@ -421,8 +513,8 @@ export function DataTable({
         </div>
       )}
 
-      {/* Selection Summary */}
-      {selectable && selectedRows.size > 0 && (
+      {/* Selection Summary (client-side only) */}
+      {selectable && !serverSide && selectedRows.size > 0 && (
         <div className="px-4 py-2 bg-teal-50 border-t border-teal-200">
           <div className="text-sm text-teal-800">
             {selectedRows.size} item(s) selected

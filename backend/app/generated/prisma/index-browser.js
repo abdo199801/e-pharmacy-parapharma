@@ -188,12 +188,12 @@ exports.Prisma.PageScalarFieldEnum = {
 exports.Prisma.ProductScalarFieldEnum = {
   id: 'id',
   name: 'name',
-  description: 'description',
   price: 'price',
   dashboardId: 'dashboardId',
   categoryId: 'categoryId',
   createdAt: 'createdAt',
-  updatedAt: 'updatedAt'
+  updatedAt: 'updatedAt',
+  description: 'description'
 };
 
 exports.Prisma.CategoryScalarFieldEnum = {

@@ -9,7 +9,7 @@ export interface CreateClientData {
   password: string;
   phone?: string;
   address?: string;
-  role?: 'ADMINISTRATORCLIENT' | 'NORMALCLIENT';
+  role?: 'NORMALCLIENT' | 'ADMINISTRATORCLIENT';
 }
 
 export interface UpdateClientData {
@@ -18,8 +18,8 @@ export interface UpdateClientData {
   email?: string;
   phone?: string;
   address?: string;
-  role?: 'ADMINISTRATORCLIENT' | 'NORMALCLIENT';
-  status?: 'active' | 'inactive';
+  role?: 'NORMALCLIENT' | 'ADMINISTRATORCLIENT';
+  status?: 'ACTIVE' | 'INACTIVE';
 }
 
 export const getClients = async (req: Request, res: Response) => {
@@ -77,9 +77,16 @@ export const getClients = async (req: Request, res: Response) => {
           status: true,
           createdAt: true,
           updatedAt: true,
+          pharmacyInfo: {
+            select: {
+              pharmacyName: true,
+              licenseNumber: true
+            }
+          },
           _count: {
             select: {
-              purchases: true
+              purchases: true,
+              subscriptions: true
             }
           }
         }
@@ -92,14 +99,35 @@ export const getClients = async (req: Request, res: Response) => {
       clients.map(async (client) => {
         const purchaseStats = await prisma.purchase.aggregate({
           where: { clientId: client.id },
-          _sum: { totalPrice: true },
+          _sum: { total: true },
           _count: { id: true }
+        });
+
+        const activeSubscription = await prisma.subscription.findFirst({
+          where: { 
+            clientId: client.id,
+            status: 'active'
+          },
+          include: {
+            pack: {
+              select: {
+                name: true,
+                price: true
+              }
+            }
+          }
         });
 
         return {
           ...client,
           totalOrders: purchaseStats._count.id,
-          totalSpent: purchaseStats._sum.totalPrice || 0
+          totalSpent: purchaseStats._sum.total || 0,
+          hasPharmacy: !!client.pharmacyInfo,
+          activeSubscription: activeSubscription ? {
+            packName: activeSubscription.pack.name,
+            price: activeSubscription.pack.price,
+            endDate: activeSubscription.endDate
+          } : null
         };
       })
     );
@@ -142,6 +170,17 @@ export const getClient = async (req: Request, res: Response) => {
         status: true,
         createdAt: true,
         updatedAt: true,
+        pharmacyInfo: {
+          select: {
+            pharmacyName: true,
+            address: true,
+            city: true,
+            country: true,
+            licenseNumber: true,
+            phone: true,
+            website: true
+          }
+        },
         purchases: {
           orderBy: {
             createdAt: 'desc'
@@ -150,7 +189,24 @@ export const getClient = async (req: Request, res: Response) => {
             product: {
               select: {
                 name: true,
-                price: true
+                price: true,
+                category: {
+                  select: {
+                    name: true
+                  }
+                }
+              }
+            }
+          }
+        },
+        subscriptions: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            pack: {
+              select: {
+                name: true,
+                price: true,
+                durationMonths: true
               }
             }
           }
@@ -168,19 +224,25 @@ export const getClient = async (req: Request, res: Response) => {
     // Calculate client statistics
     const purchaseStats = await prisma.purchase.aggregate({
       where: { clientId: id },
-      _sum: { totalPrice: true },
+      _sum: { total: true, quantity: true },
       _count: { id: true },
-      _avg: { totalPrice: true }
+      _avg: { total: true }
     });
 
+    const subscriptionStats = await prisma.subscription.aggregate({
+      where: { clientId: id },
+      _count: { id: true }
+    });
+
+    // Get recent activity (purchases)
     const recentActivity = await prisma.purchase.findMany({
       where: { clientId: id },
       orderBy: { createdAt: 'desc' },
       take: 5,
       select: {
         id: true,
-        totalPrice: true,
-        status: true,
+        total: true,
+        quantity: true,
         createdAt: true,
         product: {
           select: {
@@ -196,8 +258,12 @@ export const getClient = async (req: Request, res: Response) => {
         ...client,
         stats: {
           totalOrders: purchaseStats._count.id,
-          totalSpent: purchaseStats._sum.totalPrice || 0,
-          averageOrder: purchaseStats._avg.totalPrice || 0,
+          totalSpent: purchaseStats._sum.total || 0,
+          totalItems: purchaseStats._sum.quantity || 0,
+          averageOrder: purchaseStats._avg.total || 0,
+          totalSubscriptions: subscriptionStats._count.id,
+          activeSubscriptions: client.subscriptions.filter(s => s.status === 'active').length,
+          hasPharmacy: !!client.pharmacyInfo,
           lastOrder: client.purchases[0]?.createdAt || null
         },
         recentActivity
@@ -251,7 +317,7 @@ export const createClient = async (req: Request, res: Response) => {
         phone: phone || null,
         address: address || null,
         role: role || 'NORMALCLIENT',
-        status: 'active'
+        status: 'ACTIVE'
       },
       select: {
         id: true,
@@ -361,9 +427,11 @@ export const deleteClient = async (req: Request, res: Response) => {
       include: {
         _count: {
           select: {
-            purchases: true
+            purchases: true,
+            subscriptions: true
           }
-        }
+        },
+        pharmacyInfo: true
       }
     });
 
@@ -374,11 +442,18 @@ export const deleteClient = async (req: Request, res: Response) => {
       });
     }
 
-    // Check if client has purchases
-    if (existingClient._count.purchases > 0) {
+    // Check if client has purchases or subscriptions
+    if (existingClient._count.purchases > 0 || existingClient._count.subscriptions > 0) {
       return res.status(400).json({
         success: false,
-        error: 'Cannot delete client with purchase history'
+        error: 'Cannot delete client with purchase or subscription history'
+      });
+    }
+
+    // Delete related pharmacy info if exists
+    if (existingClient.pharmacyInfo) {
+      await prisma.pharmacyBusinessInformation.delete({
+        where: { clientId: id }
       });
     }
 
@@ -406,6 +481,14 @@ export const updateClientStatus = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+
+    // Validate status
+    if (!['ACTIVE', 'INACTIVE'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status. Must be ACTIVE or INACTIVE'
+      });
+    }
 
     console.log('📝 Updating client status:', id, status);
 
@@ -439,11 +522,61 @@ export const updateClientStatus = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      message: `Client ${status === 'active' ? 'activated' : 'deactivated'} successfully`,
+      message: `Client ${status === 'ACTIVE' ? 'activated' : 'deactivated'} successfully`,
       data: client
     });
   } catch (error) {
     console.error('❌ Error updating client status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+};
+
+export const getClientStats = async (req: Request, res: Response) => {
+  try {
+    const totalClients = await prisma.client.count();
+    const totalAdmins = await prisma.client.count({
+      where: { role: 'ADMINISTRATORCLIENT' }
+    });
+    const clientsWithPharmacy = await prisma.client.count({
+      where: { pharmacyInfo: { isNot: null } }
+    });
+
+    const totalRevenue = await prisma.purchase.aggregate({
+      _sum: { total: true }
+    });
+
+    const recentClients = await prisma.client.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: {
+        id: true,
+        firstname: true,
+        lastname: true,
+        email: true,
+        createdAt: true,
+        _count: {
+          select: {
+            purchases: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        totalClients,
+        totalAdmins,
+        clientsWithPharmacy,
+        totalRevenue: totalRevenue._sum.total || 0,
+        recentClients
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error fetching client stats:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error'

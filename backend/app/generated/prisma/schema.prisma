@@ -91,12 +91,12 @@ model Page {
 model Product {
   id          String     @id @default(cuid())
   name        String
-  description String?
   price       Float
   dashboardId String
   categoryId  String
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+  description String?
   category    Category   @relation(fields: [categoryId], references: [id])
   dashboard   Dashboard  @relation(fields: [dashboardId], references: [id])
   purchases   Purchase[]

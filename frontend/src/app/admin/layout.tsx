@@ -31,6 +31,8 @@ const navigation = [
     icon: BarChart3,
     group: 'Overview'
   },
+
+  
   { 
     name: 'Products', 
     href: '/admin/products', 
