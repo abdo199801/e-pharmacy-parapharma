@@ -1,3 +1,4 @@
+// src/app/admin/clients/page.tsx
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -5,7 +6,6 @@ import Link from 'next/link'
 import { 
   Plus, 
   Search, 
-  Filter,
   Users,
   Edit,
   Trash2,
@@ -13,60 +13,52 @@ import {
   RefreshCw,
   ShoppingCart,
   DollarSign,
-  UserCheck,
   Building2,
   CreditCard,
-  Mail,
   Phone,
-  MapPin,
-  Crown
+  Crown,
+  AlertCircle
 } from 'lucide-react'
-import { clientService, Client, ClientStats } from '../../../services/clientService'
-import { DataTable, Column } from '../../../components/admin/DataTable'
+import { clientService, Client, ClientStats } from '@/services/clientService'
+import { DataTable, Column } from '@/components/admin/DataTable'
+import { StatsCard } from '@/components/admin/StatsCard'
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([])
   const [stats, setStats] = useState<ClientStats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [statsLoading, setStatsLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
+  const [statsLoading, setStatsLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedRole, setSelectedRole] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
 
   const fetchClients = async (
     page: number = 1, 
     search: string = '', 
     role: string = ''
   ) => {
-    try {
-      setLoading(true)
-      const response = await clientService.getClients(page, 10, search, role)
+    setLoading(true)
+    const response = await clientService.getClients(page, 10, search, role)
+    
+    if (response.success && response.data) {
       setClients(response.data.clients)
       setTotalPages(response.data.pagination.totalPages)
       setTotalCount(response.data.pagination.total)
-    } catch (error) {
-      console.error('Error fetching clients:', error)
-      // You can set empty array or show error message
-      setClients([])
-      setTotalPages(1)
-      setTotalCount(0)
-    } finally {
-      setLoading(false)
     }
+    setLoading(false)
   }
 
   const fetchClientStats = async () => {
-    try {
-      setStatsLoading(true)
-      const response = await clientService.getClientStats()
+    setStatsLoading(true)
+    const response = await clientService.getClientStats()
+    
+    if (response.success && response.data) {
       setStats(response.data)
-    } catch (error) {
-      console.error('Error fetching client stats:', error)
-    } finally {
-      setStatsLoading(false)
     }
+    setStatsLoading(false)
   }
 
   useEffect(() => {
@@ -79,36 +71,50 @@ export default function ClientsPage() {
     setCurrentPage(1)
   }
 
-  const handleEdit = (client: Client) => {
+  const handleRefresh = () => {
+    fetchClients(currentPage, searchTerm, selectedRole)
+    fetchClientStats()
+  }
+
+  const handleEdit = async (client: Client) => {
+    setActionLoading(client.id)
     console.log('Edit client:', client)
-    // Implement edit functionality - open modal or navigate to edit page
+    // Simulate API call delay
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    setActionLoading(null)
   }
 
   const handleDelete = async (client: Client) => {
-    if (confirm(`Are you sure you want to delete "${client.firstname} ${client.lastname}"? This action cannot be undone.`)) {
-      try {
-        await clientService.deleteClient(client.id)
-        fetchClients(currentPage, searchTerm, selectedRole)
-        fetchClientStats() // Refresh stats
-      } catch (error: any) {
-        console.error('Error deleting client:', error)
-        alert(error.response?.data?.error || 'Error deleting client. Please try again.')
-      }
+    if (!confirm(`Are you sure you want to delete "${client.firstname} ${client.lastname}"? This action cannot be undone.`)) {
+      return
     }
+
+    setActionLoading(client.id)
+    await clientService.deleteClient(client.id)
+    await fetchClients(currentPage, searchTerm, selectedRole)
+    await fetchClientStats()
+    setActionLoading(null)
   }
 
   const handleView = (client: Client) => {
     console.log('View client:', client)
     // Navigate to client details page
-    // router.push(`/admin/clients/${client.id}`)
   }
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+
+  // Calculate derived stats from current clients data
+  const totalRevenue = clients.reduce((sum, client) => sum + (client.totalSpent || 0), 0)
+  const totalOrders = clients.reduce((sum, client) => sum + (client.totalOrders || 0), 0)
+  const pharmacyClients = clients.filter(client => client.hasPharmacy).length
 
   const columns: Column[] = [
     {
       key: 'name',
       label: 'Client',
       sortable: true,
-      filterable: true,
       render: (value, row) => (
         <div className="flex items-center space-x-3">
           <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-sm font-medium ${
@@ -116,7 +122,7 @@ export default function ClientsPage() {
               ? 'bg-gradient-to-br from-purple-500 to-pink-600'
               : 'bg-gradient-to-br from-blue-500 to-cyan-600'
           }`}>
-            {row.firstname[0]}{row.lastname[0]}
+            {row.firstname?.[0]}{row.lastname?.[0]}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center space-x-2">
@@ -200,15 +206,13 @@ export default function ClientsPage() {
       key: 'createdAt',
       label: 'Joined',
       sortable: true,
-      render: (value) => new Date(value).toLocaleDateString('en-US', {
+      render: (value) => value ? new Date(value).toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
         day: 'numeric'
-      })
+      }) : 'N/A'
     }
   ]
-
-  const totalRevenue = clients.reduce((sum, client) => sum + (client.totalSpent || 0), 0)
 
   return (
     <div className="space-y-6">
@@ -218,17 +222,19 @@ export default function ClientsPage() {
           <h1 className="text-2xl font-bold text-gray-900">Clients Management</h1>
           <p className="text-gray-600 mt-1">
             Manage your clients, view their orders, subscriptions, and track spending
+            <span className="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+              <AlertCircle className="h-3 w-3 mr-1" />
+              Demo Mode
+            </span>
           </p>
         </div>
         <div className="flex items-center space-x-3 mt-4 sm:mt-0">
           <button 
-            onClick={() => {
-              fetchClients(currentPage, searchTerm, selectedRole)
-              fetchClientStats()
-            }}
-            className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            onClick={handleRefresh}
+            disabled={loading}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className="h-4 w-4 mr-2" />
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
           <Link
@@ -243,58 +249,30 @@ export default function ClientsPage() {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Users className="h-5 w-5 text-blue-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-900">
-                {statsLoading ? '...' : stats?.totalClients || 0}
-              </div>
-              <div className="text-sm text-gray-600">Total Clients</div>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <ShoppingCart className="h-5 w-5 text-green-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-900">
-                {clients.reduce((sum, client) => sum + (client.totalOrders || 0), 0)}
-              </div>
-              <div className="text-sm text-gray-600">Total Orders</div>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-              <DollarSign className="h-5 w-5 text-purple-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-900">
-                ${totalRevenue.toFixed(2)}
-              </div>
-              <div className="text-sm text-gray-600">Total Revenue</div>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-lg border border-gray-200">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
-              <Building2 className="h-5 w-5 text-amber-600" />
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-gray-900">
-                {statsLoading ? '...' : stats?.clientsWithPharmacy || 0}
-              </div>
-              <div className="text-sm text-gray-600">Pharmacy Clients</div>
-            </div>
-          </div>
-        </div>
+        <StatsCard
+          title="Total Clients"
+          value={stats?.totalClients || clients.length}
+          icon={Users}
+          color="bg-blue-500"
+        />
+        <StatsCard
+          title="Total Orders"
+          value={stats?.totalOrders || totalOrders}
+          icon={ShoppingCart}
+          color="bg-green-500"
+        />
+        <StatsCard
+          title="Total Revenue"
+          value={`$${stats?.totalRevenue ? Number(stats.totalRevenue).toFixed(2) : totalRevenue.toFixed(2)}`}
+          icon={DollarSign}
+          color="bg-purple-500"
+        />
+        <StatsCard
+          title="Pharmacy Clients"
+          value={stats?.clientsWithPharmacy || pharmacyClients}
+          icon={Building2}
+          color="bg-amber-500"
+        />
       </div>
 
       {/* Filters */}
@@ -313,7 +291,10 @@ export default function ClientsPage() {
           
           <select
             value={selectedRole}
-            onChange={(e) => setSelectedRole(e.target.value)}
+            onChange={(e) => {
+              setSelectedRole(e.target.value)
+              setCurrentPage(1)
+            }}
             className="border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
           >
             <option value="all">All Roles</option>
@@ -334,19 +315,22 @@ export default function ClientsPage() {
         onEdit={handleEdit}
         onDelete={handleDelete}
         onView={handleView}
-        searchable={false} // We have custom search above
+        searchable={false}
         pagination={true}
         pageSize={10}
+        currentPage={currentPage}
+        totalItems={totalCount}
+        totalPages={totalPages}
+        onPageChange={handlePageChange}
         loading={loading}
+        actionLoading={actionLoading}
         emptyMessage={
           searchTerm || selectedRole !== 'all' 
             ? "No clients found matching your search criteria."
             : "No clients found in the database. Add your first client to get started."
         }
-        onSort={(key, direction) => {
-          console.log('Sort by:', key, direction)
-          // Implement sorting if needed
-        }}
+        onRefresh={handleRefresh}
+        serverSide={true}
       />
     </div>
   )

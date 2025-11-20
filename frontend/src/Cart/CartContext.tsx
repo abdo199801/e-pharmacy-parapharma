@@ -12,9 +12,9 @@ interface CartDropdownProps {
 
 export default function CartDropdown({ isOpen, onClose }: CartDropdownProps) {
     const { 
-        cartItems, 
-        cartTotalAmount, 
-        cartItemCount, 
+        cartItems = [], // Default to empty array if undefined
+        cartTotalAmount = 0, // Default to 0 if undefined
+        cartItemCount = 0, // Default to 0 if undefined
         updateQuantity, 
         removeFromCart 
     } = useCart();
@@ -50,6 +50,9 @@ export default function CartDropdown({ isOpen, onClose }: CartDropdownProps) {
             document.body.style.overflow = 'unset';
         };
     }, [isOpen]);
+
+    // Safe cart items with fallback
+    const safeCartItems = cartItems || [];
 
     return (
         <>
@@ -92,7 +95,7 @@ export default function CartDropdown({ isOpen, onClose }: CartDropdownProps) {
 
                 {/* Enhanced Content Area */}
                 <div className="max-h-96 overflow-y-auto custom-scrollbar">
-                    {cartItemCount === 0 ? (
+                    {safeCartItems.length === 0 ? (
                         <div className="text-center py-12 px-6">
                             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <ShoppingCart className="h-8 w-8 text-gray-400" /> 
@@ -114,7 +117,7 @@ export default function CartDropdown({ isOpen, onClose }: CartDropdownProps) {
                         <div className="flex flex-col">
                             {/* Enhanced Item List */}
                             <ul className="divide-y divide-gray-100">
-                                {cartItems.map(item => (
+                                {safeCartItems.map(item => (
                                     <li key={item.id} className="p-4 hover:bg-gray-50 transition-colors">
                                         <div className="flex space-x-4 items-start">
                                             {/* Product Image Placeholder */}
