@@ -6,12 +6,11 @@ import {
   updatePage, 
   deletePage 
 } from '../controllers/pageController';
-import { adminAuth } from '../middleware/adminAuth';
+import { auth } from '../middleware/auth';
 
 const router = Router();
 
-// All routes require admin authentication
-router.use(adminAuth);
+router.use(auth);
 
 router.get('/', getPages);
 router.get('/:id', getPage);

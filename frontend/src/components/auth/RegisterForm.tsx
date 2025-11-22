@@ -118,7 +118,7 @@ export default function RegisterForm() {
             setTimeout(() => {
                 // Redirect based on user role
                 if (response.client.role === 'ADMINISTRATORCLIENT') {
-                    router.push('/login');
+                    router.push('/dashboard');
                 } else {
                     router.push('/');
                 }

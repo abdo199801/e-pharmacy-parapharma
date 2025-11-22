@@ -2,18 +2,17 @@ import { Router } from 'express';
 import { 
   getPharmacies, 
   getPharmacy, 
-  getPharmacyByClient,
+  getPharmacyByClient, 
   createPharmacy, 
   updatePharmacy, 
   deletePharmacy,
-  getPharmacyStats
+  getPharmacyStats 
 } from '../controllers/pharmacyController';
-import { adminAuth } from '../middleware/adminAuth';
+import { auth } from '../middleware/auth';
 
 const router = Router();
 
-// All routes require admin authentication
-router.use(adminAuth);
+router.use(auth);
 
 router.get('/', getPharmacies);
 router.get('/stats', getPharmacyStats);

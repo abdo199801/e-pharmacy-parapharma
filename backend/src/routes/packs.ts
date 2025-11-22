@@ -6,12 +6,11 @@ import {
   updatePack, 
   deletePack 
 } from '../controllers/packController';
-import { adminAuth } from '../middleware/adminAuth';
+import { auth } from '../middleware/auth';
 
 const router = Router();
 
-// All routes require admin authentication
-router.use(adminAuth);
+router.use(auth);
 
 router.get('/', getPacks);
 router.get('/:id', getPack);

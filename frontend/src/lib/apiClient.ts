@@ -1,49 +1,55 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
-
+// lib/apiClient.ts
 class ApiClient {
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    const url = `${API_BASE_URL}${endpoint}`;
-    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  private baseURL: string;
 
-    const config: RequestInit = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
-        ...options.headers,
-      },
-      ...options,
-    };
+  constructor() {
+    this.baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+  }
 
-    const response = await fetch(url, config);
+  async request(endpoint: string, options: RequestInit = {}) {
+    const url = `${this.baseURL}${endpoint}`;
     
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Network error' }));
-      throw new Error(errorData.error || `API Error: ${response.status}`);
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+        ...options,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('API request failed:', error);
+      throw new Error('Network error');
     }
-
-    return response.json();
   }
 
-  async get<T>(endpoint: string) {
-    return this.request<T>(endpoint);
+  get(endpoint: string, params?: Record<string, any>) {
+    const queryString = params ? `?${new URLSearchParams(params).toString()}` : '';
+    return this.request(`${endpoint}${queryString}`);
   }
 
-  async post<T>(endpoint: string, data: any) {
-    return this.request<T>(endpoint, {
+  post(endpoint: string, data: any) {
+    return this.request(endpoint, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async put<T>(endpoint: string, data: any) {
-    return this.request<T>(endpoint, {
+  put(endpoint: string, data: any) {
+    return this.request(endpoint, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
-  async delete<T>(endpoint: string) {
-    return this.request<T>(endpoint, {
+  delete(endpoint: string) {
+    return this.request(endpoint, {
       method: 'DELETE',
     });
   }

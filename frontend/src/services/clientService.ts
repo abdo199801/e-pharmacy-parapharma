@@ -1,64 +1,47 @@
-import { apiClient } from '../lib/apiClient';
+// services/clientService.ts
+import { apiClient } from '@/lib/apiClient';
 
 export interface Client {
   id: string;
+  name: string;
   firstname: string;
   lastname: string;
   email: string;
   phone?: string;
   address?: string;
-  role: 'NORMALCLIENT' | 'ADMINISTRATORCLIENT';
+  company?: string;
+  city?: string;
+  country?: string;
+  role: string;
+  status: 'active' | 'inactive' | 'pending';
   createdAt: string;
-  totalOrders?: number;
-  totalSpent?: number;
-  hasPharmacy?: boolean;
-  activeSubscription?: {
-    packName: string;
-    price: number;
-    endDate: string;
-  } | null;
+  subscription?: string;
+}
+
+export interface ClientStats {
+  total: number;
+  active: number;
+  inactive: number;
+  pending: number;
+  byRole?: Record<string, number>;
+  activeSubscriptions?: number;
+}
+
+export interface ClientListResponse {
+  clients: Client[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export interface CreateClientData {
   firstname: string;
   lastname: string;
   email: string;
-  password: string;
   phone?: string;
   address?: string;
-  role?: 'NORMALCLIENT' | 'ADMINISTRATORCLIENT';
-}
-
-export interface UpdateClientData {
-  firstname?: string;
-  lastname?: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-  role?: 'NORMALCLIENT' | 'ADMINISTRATORCLIENT';
-}
-
-export interface ClientsResponse {
-  data: {
-    clients: Client[];
-    pagination: {
-      page: number;
-      limit: number;
-      total: number;
-      totalPages: number;
-    };
-  };
-}
-
-export interface ClientDetails {
-  id: string;
-  firstname: string;
-  lastname: string;
-  email: string;
-  phone?: string;
-  address?: string;
-  role: 'NORMALCLIENT' | 'ADMINISTRATORCLIENT';
-  createdAt: string;
+  role?: string;
   pharmacyInfo?: {
     pharmacyName: string;
     address: string;
@@ -68,75 +51,73 @@ export interface ClientDetails {
     phone?: string;
     website?: string;
   };
-  purchases: any[];
-  subscriptions: any[];
-  stats: {
-    totalOrders: number;
-    totalSpent: number;
-    totalItems: number;
-    averageOrder: number;
-    totalSubscriptions: number;
-    activeSubscriptions: number;
-    hasPharmacy: boolean;
-  };
-  recentActivity: any[];
 }
 
-export interface ClientStats {
-  totalClients: number;
-  totalAdmins: number;
-  clientsWithPharmacy: number;
-  totalRevenue: number;
-  recentClients: Client[];
-}
+class ClientService {
+  async getClients(params: {
+    page: number;
+    limit: number;
+    role?: string;
+    status?: string;
+    search?: string;
+  }): Promise<ClientListResponse> {
+    try {
+      // Remove undefined params
+      const cleanParams = Object.fromEntries(
+        Object.entries(params).filter(([_, value]) => value !== undefined && value !== '')
+      );
 
-export const clientService = {
-  // Get all clients with pagination
-  getClients: async (
-    page: number = 1, 
-    limit: number = 10, 
-    search: string = '',
-    role: string = ''
-  ): Promise<ClientsResponse> => {
-    const response = await apiClient.get<ClientsResponse>(
-      `/admin/clients?page=${page}&limit=${limit}&search=${search}&role=${role}`
-    );
-    return response;
-  },
-
-  // Get single client
-  getClient: async (id: string): Promise<{ data: ClientDetails }> => {
-    const response = await apiClient.get<{ data: ClientDetails }>(`/admin/clients/${id}`);
-    return response;
-  },
-
-  // Create client
-  createClient: async (clientData: CreateClientData): Promise<{ data: Client; message: string }> => {
-    const response = await apiClient.post<{ data: Client; message: string }>(
-      '/admin/clients',
-      clientData
-    );
-    return response;
-  },
-
-  // Update client
-  updateClient: async (id: string, clientData: UpdateClientData): Promise<{ data: Client; message: string }> => {
-    const response = await apiClient.put<{ data: Client; message: string }>(
-      `/admin/clients/${id}`,
-      clientData
-    );
-    return response;
-  },
-
-  // Delete client
-  deleteClient: async (id: string): Promise<{ message: string }> => {
-    const response = await apiClient.delete<{ message: string }>(`/admin/clients/${id}`);
-    return response;
-  },
-
-  // Get client statistics
-  getClientStats: async (): Promise<{ data: ClientStats }> => {
-    const response = await apiClient.get<{ data: ClientStats }>('/admin/clients/stats');
-    return response;
+      return await apiClient.get('/clients', cleanParams);
+    } catch (error) {
+      console.error('Failed to fetch clients:', error);
+      throw error;
+    }
   }
-};
+
+  async getClientStats(): Promise<ClientStats> {
+    try {
+      return await apiClient.get('/clients/stats');
+    } catch (error) {
+      console.error('Failed to fetch client stats:', error);
+      throw error;
+    }
+  }
+
+  async getClientById(id: string): Promise<Client> {
+    try {
+      return await apiClient.get(`/clients/${id}`);
+    } catch (error) {
+      console.error(`Failed to fetch client ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async createClient(clientData: CreateClientData): Promise<Client> {
+    try {
+      return await apiClient.post('/clients', clientData);
+    } catch (error) {
+      console.error('Failed to create client:', error);
+      throw error;
+    }
+  }
+
+  async updateClient(id: string, clientData: Partial<CreateClientData>): Promise<Client> {
+    try {
+      return await apiClient.put(`/clients/${id}`, clientData);
+    } catch (error) {
+      console.error(`Failed to update client ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteClient(id: string): Promise<void> {
+    try {
+      await apiClient.delete(`/clients/${id}`);
+    } catch (error) {
+      console.error(`Failed to delete client ${id}:`, error);
+      throw error;
+    }
+  }
+}
+
+export const clientService = new ClientService();
